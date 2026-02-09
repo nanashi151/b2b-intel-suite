@@ -1,16 +1,19 @@
 """
 Module: scanner.py
-Description: Official Google API Search (Never Blocked)
+Description: Official Google API Search (Debug Version)
 """
 import requests
-import os
 import streamlit as st
 
-def google_search_api(query, num_results=3):
+def google_search_api(query, num_results=5):
     """
     Uses the Official Google Custom Search JSON API.
-    Requires GOOGLE_API_KEY and GOOGLE_CX in Secrets.
     """
+    # 1. Check if Secrets exist
+    if "GOOGLE_API_KEY" not in st.secrets or "GOOGLE_CX" not in st.secrets:
+        print("[!] ERROR: Missing Google API Secrets in Streamlit!")
+        return []
+
     api_key = st.secrets["GOOGLE_API_KEY"]
     cx = st.secrets["GOOGLE_CX"]
     
@@ -23,28 +26,34 @@ def google_search_api(query, num_results=3):
     }
     
     try:
+        print(f"[*] API Request: Searching for '{query}'...")
         response = requests.get(url, params=params)
         data = response.json()
         
-        # Check for errors (like Quota exceeded)
+        # 2. Check for API Errors (Quota, Invalid Key, etc.)
         if 'error' in data:
-            print(f"[!] Google API Error: {data['error']['message']}")
+            error_msg = data['error']['message']
+            print(f"[!] API ERROR: {error_msg}")
             return []
             
+        # 3. Return Items
         if 'items' in data:
-            return data['items'] # Returns a list of dicts with 'title' and 'link'
+            print(f"[*] API Success: Found {len(data['items'])} results.")
+            return data['items']
+        else:
+            print("[!] API Warning: No 'items' found in response.")
+            return []
             
     except Exception as e:
-        print(f"[!] API Request Failed: {e}")
-        
-    return []
+        print(f"[!] Network Error: {e}")
+        return []
 
 def find_business_url(name, location):
     """
     Finds the official website using Google API.
     """
+    # Create a specific query
     query = f"{name} {location} official website"
-    print(f"[*] API Radar: Searching for {query}...")
     
     # List of sites to IGNORE
     skip_list = [
@@ -57,10 +66,15 @@ def find_business_url(name, location):
     
     for r in results:
         link = r.get('link', '')
+        title = r.get('title', '')
+        print(f"[*] Checking Result: {title} ({link})")
+        
         # Filter out social media
         if not any(skip in link for skip in skip_list):
+            print(f"[*] MATCH FOUND: {link}")
             return link
             
+    print("[!] No valid website found in top 5 results.")
     return None
 
 def find_competitors(industry, location, user_domain, limit=3):
