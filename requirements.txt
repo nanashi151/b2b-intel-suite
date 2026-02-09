@@ -4,6 +4,4 @@ fpdf
 beautifulsoup4
 requests
 dnspython
-duckduckgo-search
 pandas
-googlesearch-python
