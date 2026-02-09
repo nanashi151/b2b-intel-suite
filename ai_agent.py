@@ -1,94 +1,77 @@
 """
 Module: ai_agent.py
-Description: smart AI Agent for Strategy (Branch B) and Executive Audits (Branch A).
+Description: Generates Audit Narratives and SEO Fixes using Gemini AI.
 """
-
+import google.generativeai as genai
 import os
-import requests
-import json
-from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+# Configure Gemini
+# Ensure you have set GEMINI_API_KEY in your Streamlit Secrets!
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-def get_available_model(api_key):
-    """Dynamically finds a working model name."""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
-    try:
-        response = requests.get(url)
-        if response.status_code == 200:
-            models = response.json().get('models', [])
-            for model in models:
-                if 'generateContent' in model['supportedGenerationMethods'] and 'gemini' in model['name']:
-                    return model['name']
-    except:
-        pass
-    return "models/gemini-pro"
-
-def query_gemini(prompt):
-    """Helper function to send raw requests to Gemini."""
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key: return "Error: No API Key."
+def generate_audit_narrative(business_name, url, score, ssl, ports, seo, tech):
+    """
+    Generates the Executive Summary for the PDF Report.
+    """
+    model = genai.GenerativeModel('gemini-pro')
     
-    model_name = get_available_model(api_key)
-    url = f"https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent?key={api_key}"
-    headers = {"Content-Type": "application/json"}
-    payload = {"contents": [{"parts": [{"text prompt": prompt}]}]} # Fixed key name
-    
-    # Correct payload structure for Gemini API
-    payload = {
-        "contents": [{
-            "parts": [{"text": prompt}]
-        }]
-    }
-
-    try:
-        response = requests.post(url, headers=headers, data=json.dumps(payload))
-        if response.status_code == 200:
-            return response.json()['candidates'][0]['content']['parts'][0]['text']
-        else:
-            return f"AI Error: {response.text}"
-    except Exception as e:
-        return f"Connection Error: {e}"
-
-# --- BRANCH B: STRATEGY (No Website) ---
-def generate_website_strategy(business_name, location, reviews):
     prompt = f"""
-    You are a Senior Digital Strategist. A business named '{business_name}' in '{location}' has no website.
-    Reviews: "{reviews}"
+    You are a Senior Cyber Security & Digital Strategist.
+    Write a 3-paragraph executive summary for a client named '{business_name}'.
     
-    Write a Website Proposal. Format exactly like this:
-    1. PROPOSED DOMAIN: (Name)
-    2. HERO HEADLINE: (One sentence)
-    3. STRATEGY SUMMARY: (3 sentences on how a website will solve their specific problems based on reviews)
-    4. KEY SELLING POINT: (The main hook)
-    """
-    return query_gemini(prompt)
-
-# --- BRANCH A: EXECUTIVE AUDIT (Website Exists) ---
-def generate_audit_narrative(business_name, url, score, ssl, ports, seo, tech_stack):
-    """
-    Analyzes technical scan data and writes a professional executive summary.
-    """
-    prompt = f"""
-    You are a Cyber Security & Marketing Consultant. You just ran an audit on: {business_name} ({url}).
-    
-    DATA FINDINGS:
-    - Overall Risk Score: {score}/100 (Lower is worse)
-    - SSL Certificate: {"Secure" if ssl else "CRITICAL FAIL (Not Secure)"}
+    DATA:
+    - Website: {url}
+    - Security Score: {score}/100
+    - SSL Secure: {ssl}
     - Open Ports: {ports}
-    - SEO Meta Description: {"Present" if seo.get('description') else "MISSING (Invisible to Google)"}
-    - Tech Stack: {tech_stack}
+    - Tech Stack: {tech}
+    - SEO Data: {seo}
+    
+    TONE: Professional, urgent, but constructive.
+    STRUCTURE:
+    1. The Good: What they are doing right.
+    2. The Bad: The critical risks (Score, SSL, Ports).
+    3. The Opportunity: How fixing SEO/Tech will increase revenue.
+    """
+    try:
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        return f"AI Error: {e}"
+
+def generate_seo_fixes(url, current_title, current_desc, industry, location):
+    """
+    NEW FUNCTION: Automatically rewrites bad SEO tags to rank higher on Google.
+    """
+    model = genai.GenerativeModel('gemini-pro')
+    
+    prompt = f"""
+    You are a Google SEO Expert. I need you to rewrite the meta tags for a website to rank #1.
+    
+    TARGET:
+    - Industry: {industry}
+    - Location: {location}
+    - URL: {url}
+    
+    CURRENT (BAD) TAGS:
+    - Title: {current_title}
+    - Description: {current_desc}
     
     TASK:
-    Write a professional Executive Summary (max 150 words).
-    Do NOT just list the data again. Interpret it.
+    Write 3 options for a new, high-converting <title> and <meta description>.
+    Include keywords for {industry} in {location}.
     
-    Structure:
-    1. **Security Posture**: Evaluate their risk level. Mention the SSL and ports implications.
-    2. **Digital Presence**: Critique their SEO and tech stack. Are they modern or outdated?
-    3. **Strategic Recommendation**: Give 1 actionable next step.
+    FORMAT:
+    Option 1: [Aggressive Growth]
+    Title: ...
+    Desc: ...
     
-    Tone: Professional, direct, and authoritative.
+    Option 2: [Trust & Authority]
+    Title: ...
+    Desc: ...
     """
-    return query_gemini(prompt)
+    try:
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        return "Could not generate SEO fixes due to an API error."
