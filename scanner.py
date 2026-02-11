@@ -1,6 +1,6 @@
 """
 Module: scanner.py
-Description: Serper.dev API (Web & Places Edition) with Smart Filtering
+Description: Serper.dev API with Multi-Pass Competitor Discovery
 """
 import requests
 import json
@@ -60,44 +60,62 @@ def find_social_links(name, location):
                 socials[platform] = link
     return socials
 
-# --- 3. COMPETITOR FINDER (The Aggressive Fix) ---
+# --- 3. COMPETITOR FINDER (Multi-Pass Fix) ---
 
 def find_competitors(target_name, industry, location, user_domain):
     """
-    Finds competitors and aggressively removes the user's own business.
+    Attempts to find competitors using specific industry terms first.
+    If none found (likely because the target is the only one),
+    falls back to broader terms (e.g. "Integrated Resort" -> "Resort").
     """
-    query = f"{industry} in {location}"
-    print(f"[*] Searching Places for: {query}")
-    
-    places = serper_places(query, num_results=15) # Fetch more to allow for filtering
     competitors = []
+    seen_urls = set()
     
-    # Create exclusion keywords from the business name
-    # e.g. "Solaire Resort North" -> ["solaire", "resort"]
-    exclusion_keywords = target_name.lower().split()[:2] 
+    # Define exclusion keywords (e.g., "Solaire")
+    exclusion_keywords = target_name.lower().split()[:2]
     
-    for p in places:
-        name = p.get('title', 'Unknown')
-        website = p.get('website', '') 
-        address = p.get('address', '')
-        
-        # --- FILTERS ---
-        
-        # 1. Name Filter: If result title contains "Solaire", skip it.
-        if any(keyword in name.lower() for keyword in exclusion_keywords):
-            continue
-            
-        # 2. Domain Filter: If website matches user's site, skip it.
-        if user_domain and website and (user_domain in website or website in user_domain):
-            continue
-            
-        # 3. Duplicate Filter
-        if any(c['name'] == name for c in competitors):
-            continue
+    # Strategy: Try specific first, then broad
+    # 1. "Integrated Resort in Quezon City"
+    # 2. "Resort in Quezon City" (The broad fallback)
+    search_queries = [
+        f"{industry} in {location}",
+        f"{industry.split()[-1]} in {location}" # Grabs the last word (e.g. "Resort" from "Integrated Resort")
+    ]
+    
+    print(f"[*] Competitor Radar: Targets {exclusion_keywords}")
 
-        competitors.append({"name": name, "url": website or "No Website Listed"})
-        
-        if len(competitors) >= 4: 
+    for query in search_queries:
+        if len(competitors) >= 4:
             break
             
+        print(f"[*] Trying Query: {query}")
+        places = serper_places(query, num_results=15)
+        
+        for p in places:
+            name = p.get('title', 'Unknown')
+            website = p.get('website', '') 
+            
+            # --- FILTERS ---
+            # 1. Self-Destruct: Skip if name contains target keywords
+            if any(keyword in name.lower() for keyword in exclusion_keywords):
+                continue
+            
+            # 2. Domain Filter: Skip if URL matches user
+            if user_domain and website and (user_domain in website):
+                continue
+                
+            # 3. Duplicate Filter: Skip if we already have this competitor
+            # (Checks both name and website to be safe)
+            if website in seen_urls:
+                continue
+            if any(c['name'] == name for c in competitors):
+                continue
+
+            # Add to list
+            competitors.append({"name": name, "url": website or "No Website Listed"})
+            if website: seen_urls.add(website)
+            
+            if len(competitors) >= 4: 
+                break
+    
     return competitors
