@@ -1,6 +1,6 @@
 """
 Module: app.py
-Description: The "Auto-Consultant" Dashboard (State Machine Edition)
+Description: The "Auto-Consultant" Dashboard (Maps Restored & AI Fixed)
 """
 import streamlit as st
 import pandas as pd
@@ -11,6 +11,17 @@ from analyzer import check_ssl, check_seo, detect_tech_stack
 from network_scanner import scan_common_ports
 from ai_agent import generate_audit_narrative, generate_seo_fixes
 from reporter import create_pdf
+
+# --- HELPER: GOOGLE MAPS PARSER ---
+def extract_location_from_maps(url):
+    if not url: return ""
+    try:
+        match = re.search(r'place/([^/]+)', url)
+        if match:
+            return match.group(1).replace('+', ' ').split(',')[0]
+    except:
+        pass
+    return ""
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="RevenueRecon", page_icon="🕵️", layout="wide")
@@ -24,7 +35,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- SESSION STATE INITIALIZATION ---
-# This is the "Memory" that prevents the app from resetting
 keys = ['scan_complete', 'target_data', 'competitors', 'audit_results', 'ai_report', 'pdf_path']
 for k in keys:
     if k not in st.session_state:
@@ -51,8 +61,22 @@ if not st.session_state.scan_complete:
     
     if mode == "Auto-Discovery":
         c1, c2 = st.columns(2)
-        target_name = c1.text_input("Business Name", placeholder="e.g. Accenture Philippines")
-        location = c2.text_input("Location/City", placeholder="e.g. Manila")
+        with c1:
+            target_name = st.text_input("Business Name", placeholder="e.g. Accenture Philippines")
+        with c2:
+            # RESTORED: Google Maps Link Input
+            maps_link = st.text_input("Google Maps Link (Optional)", placeholder="Paste Maps URL to auto-detect city...")
+            
+            if maps_link:
+                detected_loc = extract_location_from_maps(maps_link)
+                if detected_loc:
+                    st.success(f"📍 Location Detected: {detected_loc}")
+                    location = detected_loc
+                else:
+                    location = st.text_input("Location/City", placeholder="e.g. Manila")
+            else:
+                location = st.text_input("Location/City", placeholder="e.g. Manila")
+
     else:
         manual_url = st.text_input("Direct Website URL", placeholder="https://example.com")
         location = st.text_input("Location (For Competitor Analysis)")
@@ -71,20 +95,18 @@ if not st.session_state.scan_complete:
         
         # 2. PERFORM DEEP SCAN
         with st.spinner(f"🛡️ Infiltrating public data for {url}..."):
-            # Parallel-ish execution
             socials = find_social_links(target_name, location)
             ssl = check_ssl(url)
             seo = check_seo(url)
             tech = detect_tech_stack(url)
             ports = scan_common_ports(url)
             
-            # Competitors
             comps = []
             if location:
                 clean_domain = url.replace("https://", "").split("/")[0]
                 comps = find_competitors(target_name, location, clean_domain)
 
-        # 3. SAVE TO STATE (This locks the results in memory)
+        # 3. SAVE TO STATE
         st.session_state.target_data = {
             "name": target_name, "url": url, "location": location,
             "socials": socials
@@ -94,9 +116,9 @@ if not st.session_state.scan_complete:
         }
         st.session_state.competitors = comps
         st.session_state.scan_complete = True
-        st.rerun() # Force refresh to show results
+        st.rerun() 
 
-# --- RESULTS DASHBOARD (Only shows if scan IS complete) ---
+# --- RESULTS DASHBOARD ---
 if st.session_state.scan_complete:
     data = st.session_state.target_data
     audit = st.session_state.audit_results
@@ -104,9 +126,8 @@ if st.session_state.scan_complete:
     st.title(f"📊 Audit Report: {data['name']}")
     st.caption(f"Target URL: {data['url']}")
     
-    # --- TOP LEVEL METRICS ---
+    # METRICS
     col1, col2, col3, col4 = st.columns(4)
-    
     score = 100
     if not audit['ssl']: score -= 30
     if not audit['seo'].get('description'): score -= 15
@@ -117,7 +138,7 @@ if st.session_state.scan_complete:
     col3.metric("Tech Stack", f"{len(audit['tech'])} Detected")
     col4.metric("Social Footprint", f"{len(data['socials'])} Channels")
 
-    # --- TABS FOR DETAILED VIEW ---
+    # TABS
     tab1, tab2, tab3 = st.tabs(["⚔️ Market Radar", "🛡️ Security & OSINT", "🔧 SEO Engine"])
     
     with tab1:
@@ -165,10 +186,10 @@ if st.session_state.scan_complete:
 
     st.divider()
 
-    # --- REPORT GENERATION (Persistent) ---
+    # --- REPORT GENERATION ---
     st.subheader("📄 Executive Deliverable")
     
-    # 1. Generate Text
+    # 1. Generate Text (If not already done)
     if st.session_state.ai_report is None:
         if st.button("📝 Draft Executive Analysis"):
             with st.spinner("Drafting Strategy..."):
@@ -178,21 +199,22 @@ if st.session_state.scan_complete:
                 )
                 st.rerun()
     else:
+        # Show Text
         st.info(st.session_state.ai_report)
         
-        # 2. Generate PDF (Only if text exists)
+        # 2. Generate PDF (If text exists)
         if st.session_state.pdf_path is None:
-            # Auto-generate PDF path once text is ready
             st.session_state.pdf_path = create_pdf(
                 data['name'], data['url'], score, st.session_state.ai_report, 
                 audit['ssl'], audit['seo'], audit['tech']
             )
             
-        # 3. Download Button
-        with open(st.session_state.pdf_path, "rb") as f:
-            st.download_button(
-                label="⬇️ Download PDF Report",
-                data=f,
-                file_name=st.session_state.pdf_path,
-                mime="application/pdf"
-            )
+        # 3. Download Button (Persistent)
+        if st.session_state.pdf_path and os.path.exists(st.session_state.pdf_path):
+            with open(st.session_state.pdf_path, "rb") as f:
+                st.download_button(
+                    label="⬇️ Download PDF Report",
+                    data=f,
+                    file_name=st.session_state.pdf_path,
+                    mime="application/pdf"
+                )
