@@ -1,6 +1,6 @@
 """
 Module: scanner.py
-Description: Serper.dev API (Web & Places Edition)
+Description: Serper.dev API (Web & Places Edition) with Smart Filtering
 """
 import requests
 import json
@@ -9,9 +9,6 @@ import streamlit as st
 # --- 1. CORE SEARCH FUNCTIONS ---
 
 def serper_search(query, num_results=5):
-    """
-    Standard Web Search (Articles, Blogs, Homepages)
-    """
     if "SERPER_API_KEY" not in st.secrets:
         return []
     url = "https://google.serper.dev/search"
@@ -23,11 +20,7 @@ def serper_search(query, num_results=5):
     except:
         return []
 
-def serper_places(query, num_results=5):
-    """
-    [NEW] Places Search (Google Maps Data)
-    Returns actual businesses, not blog posts.
-    """
+def serper_places(query, num_results=10):
     if "SERPER_API_KEY" not in st.secrets:
         return []
     url = "https://google.serper.dev/places"
@@ -35,7 +28,6 @@ def serper_places(query, num_results=5):
     headers = {'X-API-KEY': st.secrets["SERPER_API_KEY"], 'Content-Type': 'application/json'}
     try:
         response = requests.post(url, headers=headers, data=payload)
-        # Places results are in the 'places' key
         return response.json().get('places', [])
     except:
         return []
@@ -45,16 +37,9 @@ def serper_places(query, num_results=5):
 def find_business_url(name, location):
     query = f"{name} {location} official website"
     results = serper_search(query)
-    
-    # Sites to ignore (Directories/Socials)
-    skip = [
-        'facebook', 'instagram', 'linkedin', 'yelp', 'tripadvisor', 
-        'youtube', 'tiktok', 'wikipedia', 'glassdoor', 'agoda', 'booking.com'
-    ]
-    
+    skip = ['facebook', 'instagram', 'linkedin', 'yelp', 'tripadvisor', 'youtube', 'tiktok', 'wikipedia']
     for r in results:
         link = r.get('link', '')
-        # Return the first link that isn't a social media site
         if not any(x in link for x in skip):
             return link
     return None
@@ -64,14 +49,10 @@ def find_social_links(name, location):
     results = serper_search(query, num_results=10)
     socials = {}
     targets = {
-        "facebook.com": "Facebook",
-        "instagram.com": "Instagram", 
-        "linkedin.com": "LinkedIn",
-        "twitter.com": "X (Twitter)",
-        "tiktok.com": "TikTok",
-        "youtube.com": "YouTube"
+        "facebook.com": "Facebook", "instagram.com": "Instagram", 
+        "linkedin.com": "LinkedIn", "twitter.com": "X (Twitter)",
+        "tiktok.com": "TikTok", "youtube.com": "YouTube"
     }
-    
     for r in results:
         link = r.get('link', '')
         for domain, platform in targets.items():
@@ -79,39 +60,44 @@ def find_social_links(name, location):
                 socials[platform] = link
     return socials
 
-# --- 3. COMPETITOR FINDER (The Fix) ---
+# --- 3. COMPETITOR FINDER (The Aggressive Fix) ---
 
-def find_competitors(industry, location, user_domain):
+def find_competitors(target_name, industry, location, user_domain):
     """
-    Uses the Places API to find real business entities.
+    Finds competitors and aggressively removes the user's own business.
     """
-    # Query: "Casino Hotels in Quezon City"
     query = f"{industry} in {location}"
     print(f"[*] Searching Places for: {query}")
     
-    places = serper_places(query, num_results=10)
+    places = serper_places(query, num_results=15) # Fetch more to allow for filtering
     competitors = []
+    
+    # Create exclusion keywords from the business name
+    # e.g. "Solaire Resort North" -> ["solaire", "resort"]
+    exclusion_keywords = target_name.lower().split()[:2] 
     
     for p in places:
         name = p.get('title', 'Unknown')
-        website = p.get('website') # Places API returns a 'website' field!
+        website = p.get('website', '') 
+        address = p.get('address', '')
         
-        # 1. Skip if no website (we can't scan them)
-        if not website: 
+        # --- FILTERS ---
+        
+        # 1. Name Filter: If result title contains "Solaire", skip it.
+        if any(keyword in name.lower() for keyword in exclusion_keywords):
             continue
             
-        # 2. Skip if it's the user's own business (fuzzy match)
-        if user_domain in website or name.lower() in user_domain:
+        # 2. Domain Filter: If website matches user's site, skip it.
+        if user_domain and website and (user_domain in website or website in user_domain):
             continue
             
-        # 3. Skip duplicates
-        if any(c['url'] == website for c in competitors):
+        # 3. Duplicate Filter
+        if any(c['name'] == name for c in competitors):
             continue
 
-        competitors.append({"name": name, "url": website})
+        competitors.append({"name": name, "url": website or "No Website Listed"})
         
-        # Stop after 3 good matches
-        if len(competitors) >= 3: 
+        if len(competitors) >= 4: 
             break
             
     return competitors
