@@ -1,6 +1,6 @@
 """
 Module: app.py
-Description: The "Auto-Consultant" Dashboard (Smart Industry Detection)
+Description: The "Auto-Consultant" Dashboard (Industry Logic Fixed)
 """
 import streamlit as st
 import pandas as pd
@@ -9,7 +9,7 @@ import os
 from scanner import find_business_url, find_competitors, find_social_links
 from analyzer import check_ssl, check_seo, detect_tech_stack
 from network_scanner import scan_common_ports
-from ai_agent import generate_audit_narrative, generate_seo_fixes, identify_industry # <-- Added Import
+from ai_agent import generate_audit_narrative, generate_seo_fixes, identify_industry
 from reporter import create_pdf
 
 # --- PAGE CONFIG ---
@@ -41,6 +41,7 @@ if not st.session_state.scan_complete:
     st.header("🚀 Target Acquisition")
     target_name, location, manual_url = "", "", ""
     
+    # MODE 1: AUTO DISCOVERY
     if mode == "Auto-Discovery":
         c1, c2 = st.columns(2)
         with c1: target_name = st.text_input("Business Name", placeholder="e.g. Solaire Resort North")
@@ -51,15 +52,25 @@ if not st.session_state.scan_complete:
                 location = loc.group(1).replace('+', ' ').split(',')[0] if loc else ""
                 if location: st.success(f"📍 Location: {location}")
             if not location: location = st.text_input("Location/City", placeholder="e.g. Quezon City")
+    
+    # MODE 2: DIRECT AUDIT (FIXED)
     else:
-        manual_url = st.text_input("Direct Website URL")
-        location = st.text_input("Location")
-        target_name = "Direct Audit"
+        c1, c2 = st.columns(2)
+        with c1: 
+            # We NEED the name to guess the industry correctly!
+            target_name = st.text_input("Business Name", placeholder="e.g. Solaire Resort")
+        with c2:
+            location = st.text_input("Location", placeholder="e.g. Quezon City")
+        
+        manual_url = st.text_input("Direct Website URL", placeholder="https://www.solaireresort.com")
 
     if st.button("⚡ Run Intelligence Scan"):
         # 1. IDENTIFY URL
         url = manual_url
         if not url:
+            if not target_name:
+                st.error("Please enter a Business Name.")
+                st.stop()
             with st.spinner("📡 Triangulating digital assets..."):
                 url = find_business_url(target_name, location)
                 if not url:
@@ -68,10 +79,14 @@ if not st.session_state.scan_complete:
         
         # 2. PERFORM DEEP SCAN
         with st.spinner(f"🛡️ Infiltrating public data for {url}..."):
-            # A. SMART INDUSTRY DETECTION (The Fix)
-            industry_type = target_name
-            if mode == "Auto-Discovery":
+            
+            # --- FIX: ALWAYS DETECT INDUSTRY ---
+            # Now we run this in BOTH modes so we never default to "Audit"
+            with st.spinner("🧠 Analyzing Industry Type..."):
                 industry_type = identify_industry(target_name)
+                # Fallback if AI fails
+                if not industry_type or industry_type == "Direct Audit":
+                    industry_type = target_name 
             
             # B. EXECUTE SCANS
             socials = find_social_links(target_name, location)
@@ -80,10 +95,10 @@ if not st.session_state.scan_complete:
             tech = detect_tech_stack(url)
             ports = scan_common_ports(url)
             
-            # C. COMPETITORS (Using the smart industry)
+            # C. COMPETITORS (Using the CORRECT industry)
             comps = []
             if location:
-                clean_domain = url.replace("https://", "").split("/")[0]
+                clean_domain = url.replace("https://", "").replace("http://", "").split("/")[0]
                 comps = find_competitors(industry_type, location, clean_domain)
 
         # 3. SAVE STATE
@@ -99,7 +114,8 @@ if st.session_state.scan_complete:
     audit = st.session_state.audit_results
     
     st.title(f"📊 Audit Report: {data['name']}")
-    st.caption(f"Target URL: {data['url']} | Industry: {data.get('industry', 'Unknown')}")
+    # Show the user what Industry we actually searched for (Debugging Helper)
+    st.caption(f"Target URL: {data['url']} | Detected Market: **{data.get('industry', 'Unknown')}**")
     
     col1, col2, col3, col4 = st.columns(4)
     score = 100
@@ -117,7 +133,7 @@ if st.session_state.scan_complete:
     with tab1:
         st.subheader(f"Top '{data.get('industry')}' Competitors in {data['location']}")
         if st.session_state.competitors:
-            # Clean up the display to look like a real table
+            # Clean Table
             df = pd.DataFrame(st.session_state.competitors)
             st.dataframe(
                 df,
@@ -129,7 +145,7 @@ if st.session_state.scan_complete:
                 use_container_width=True
             )
         else:
-            st.info("No direct competitors found (You might be the market leader!).")
+            st.info(f"No direct '{data.get('industry')}' competitors found in this area.")
             
     with tab2:
         c1, c2 = st.columns(2)
