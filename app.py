@@ -1,6 +1,6 @@
 """
 Module: app.py
-Description: The "Auto-Consultant" Dashboard (Final PDF Update)
+Description: The "Auto-Consultant" Dashboard (Location Fix Edition)
 """
 import streamlit as st
 import pandas as pd
@@ -41,20 +41,40 @@ if not st.session_state.scan_complete:
     st.header("🚀 Target Acquisition")
     target_name, location, manual_url = "", "", ""
     
+    # MODE 1: AUTO DISCOVERY
     if mode == "Auto-Discovery":
         c1, c2 = st.columns(2)
-        with c1: target_name = st.text_input("Business Name", placeholder="e.g. Solaire Resort North")
+        with c1: 
+            target_name = st.text_input("Business Name", placeholder="e.g. Solaire Resort North")
         with c2:
+            # OPTIONAL: Google Maps Link
             maps_link = st.text_input("Google Maps Link (Optional)")
+            
+            # Auto-Detect Logic
+            detected_loc = ""
             if maps_link:
-                loc = re.search(r'place/([^/]+)', maps_link)
-                location = loc.group(1).replace('+', ' ').split(',')[0] if loc else ""
-                if location: st.success(f"📍 Location: {location}")
-            if not location: location = st.text_input("Location/City", placeholder="e.g. Quezon City")
+                try:
+                    match = re.search(r'place/([^/]+)', maps_link)
+                    if match:
+                        detected_loc = match.group(1).replace('+', ' ').split(',')[0]
+                except:
+                    pass
+            
+            # --- THE FIX: ALWAYS SHOW THE INPUT ---
+            # We pre-fill it with the detected location, but YOU can change it.
+            location = st.text_input("Location/City", value=detected_loc, placeholder="e.g. Quezon City")
+            
+            if maps_link and location == detected_loc:
+                st.caption(f"📍 Auto-detected from link. Change if incorrect.")
+
+    # MODE 2: DIRECT AUDIT
     else:
         c1, c2 = st.columns(2)
-        with c1: target_name = st.text_input("Business Name", placeholder="e.g. Solaire Resort")
-        with c2: location = st.text_input("Location", placeholder="e.g. Quezon City")
+        with c1: 
+            target_name = st.text_input("Business Name", placeholder="e.g. Solaire Resort")
+        with c2:
+            location = st.text_input("Location", placeholder="e.g. Quezon City")
+        
         manual_url = st.text_input("Direct Website URL", placeholder="https://www.solaireresort.com")
 
     if st.button("⚡ Run Intelligence Scan"):
@@ -72,11 +92,15 @@ if not st.session_state.scan_complete:
         
         # 2. PERFORM DEEP SCAN
         with st.spinner(f"🛡️ Infiltrating public data for {url}..."):
+            
+            # A. INDUSTRY DETECTION
             with st.spinner("🧠 Analyzing Industry Type..."):
                 industry_type = identify_industry(target_name)
+                # Fallback
                 if not industry_type or industry_type == "Direct Audit":
                     industry_type = target_name 
             
+            # B. EXECUTE SCANS
             socials = find_social_links(target_name, location)
             ssl = check_ssl(url)
             seo = check_seo(url)
@@ -170,7 +194,6 @@ if st.session_state.scan_complete:
     else:
         st.info(st.session_state.ai_report)
         if st.session_state.pdf_path is None:
-            # Updated function call with competitors
             st.session_state.pdf_path = create_pdf(
                 data['name'], 
                 data['url'], 
